@@ -3,11 +3,12 @@ version 29
 __lua__
 function _init()
  t=0
- p_ani={240,241,242,243}
- 
+
  dirx={-1,1,0,0,1,1,-1,-1}
  diry={0,0,-1,1,-1,1,1,-1}
- 
+
+ mob_ani={240,192}
+
 	_upd=update_game
 	_drw=draw_game
 	startgame()
@@ -25,17 +26,13 @@ end
 
 function startgame()
  buttbuff=-1
- p_x=3
- p_y=6
- p_ox=0
- p_oy=0
- p_sox=0
- p_soy=0
- p_flip=false
- m_mov=nil
- p_t=0
+
  mob={}
- addmob(0,4,4) 
+ p_mob=addmob(1,1,1)
+ addmob(2,4,4)
+
+ p_t=0
+
  wind={}
  talkwind=nil
 end
@@ -47,7 +44,7 @@ function update_game()
    talkwind.dur=0
    talkwind=nil
   end
- else 
+ else
   dobuttbuff()
  	dobutt(buttbuff)
   buttbuff=-1
@@ -55,31 +52,29 @@ function update_game()
 end
 
 function update_pturn()
-
  dobuttbuff()
-
  p_t=min(p_t+0.2,1)
- 
- p_mov()
+
+ p_mob.mov(p_mob,p_t)
 
  if p_t==1 then
  	_upd=update_game
  end
 end
 
-function mov_walk()
- p_ox=p_sox*(1-p_t)
- p_oy=p_soy*(1-p_t)
+function mov_walk(mob,at)
+ mob.ox=mob.ox*(1-at)
+ mob.oy=mob.oy*(1-at)
 end
 
-function mov_bump()
+function mov_bump(mob,at)
  --★
- local tme=p_t
- if p_t>0.5 then
- 	tme=1-p_t
+ local tme=at
+ if at>0.5 then
+ 	tme=1-at
  end
- p_ox=p_sox*tme
- p_oy=p_soy*tme
+ mob.ox=mob.sox*tme
+ mob.oy=mob.soy*tme
 end
 
 function update_gameover()
@@ -91,8 +86,8 @@ function dobuttbuff()
 	end
 end
 
-function getbutt() 
- for i=0,5 do 
+function getbutt()
+ for i=0,5 do
 	 if btnp(i) then
 	 	return i
  	end
@@ -105,16 +100,14 @@ function dobutt(butt)
  if butt<4 then
 	 moveplayer(dirx[butt+1],diry[butt+1])
  end
- -- todo:menu button
 end
 -->8
 --draw
 function draw_game()
  cls(0)
- map()  
- drawspr(getframe(p_ani),p_x*8+p_ox,p_y*8+p_oy,10,p_flip)
+ map()
  for m in all(mob) do
-  drawspr(getframe(m.ani),m.x*8,m.y*8,10,false)
+  drawspr(getframe(m.ani),m.x*8+m.ox,m.y*8+m.oy,10,m.flp)
  end
 end
 
@@ -123,7 +116,7 @@ end
 -->8
 --tools
 
-function getframe(ani) 
+function getframe(ani)
  return ani[flr(t/15)%#ani+1]
 end
 
@@ -150,35 +143,41 @@ end
 --gameplay
 
 function moveplayer(dx,dy)
- local destx,desty=p_x+dx,p_y+dy
+ local destx,desty=p_mob.x+dx,p_mob.y+dy
  local tle=mget(destx,desty)
- 
+
  if dx<0 then
-	 p_flip=true
+	 p_mob.flp=true
 	elseif dx>0 then
-	 p_flip=false
+	 p_mob.flp=false
 	end
-		
- if fget(tle,0)==true then
-  --wall
-  p_sox,p_soy=dx*8,dy*8
-  p_ox,p_oy=0,0
-  p_t=0
-  _upd=update_pturn
-		p_mov=mov_bump
-		if fget(tle,1)==true then
-		 trig_bump(tle,destx,desty)
-		end
- else
+
+	if iswalkable(destx,desty,"checkmobs") then
   sfx(63)
-		p_x+=dx
-		p_y+=dy				
-		
-		p_sox,p_soy=-dx*8,-dy*8
-		p_ox,p_oy=p_sox,p_soy
+	 p_mob.x+=dx
+	 p_mob.y+=dy
+
+		p_mob.sox,p_mob.soy=-dx*8,-dy*8
+		p_mob.ox,p_mob.oy=p_mob.sox,p_mob.soy
 		p_t=0
 		_upd=update_pturn
-		p_mov=mov_walk
+		p_mob.mov=mov_walk
+	else
+  --not walkable
+   p_mob.sox,p_mob.soy=dx*8,dy*8
+   p_mob.ox,p_mob.oy=0,0
+   p_t=0
+   _upd=update_pturn
+	 p_mob.mov=mov_bump
+
+  local mob=getmob(destx,desty)
+  if mob=false then
+ 		if fget(tle,1)==true then
+	 	 trig_bump(tle,destx,desty)
+	 	end
+	 else
+	  hitmob(p_mob,mob)
+	 end
  end
 end
 
@@ -189,7 +188,7 @@ function trig_bump(tle, destx, desty)
  	mset(destx,desty,1)
  elseif tle==6 then
   --tablet
-  --can we give tablets ids and 
+  --can we give tablets ids and
   --look up dialog based on id?
   showmsg({"welcome to tower","climb it k?"},120)
  elseif tle==10 or tle==12 then
@@ -202,6 +201,37 @@ function trig_bump(tle, destx, desty)
  	mset(destx,desty,1)
  end
 
+end
+
+function getmob(x,y)
+ for m in all(mob) do
+  if m.x==x and m.y==y then
+   return m
+  end
+ end
+ return false
+end
+
+function iswalkable(x,y,mode)
+ if mode==nil then mode="" end
+ if inbounds(x,y) then
+  local tle=mget(x,y)
+  if fget(tle,0)==false then
+   if mode=="checkmobs" then
+    return getmob(x,y)==false
+   end
+   return true
+  end
+ end
+ return false
+end
+
+function inbounds(x,y)
+ return not (x<0 or y<0 or x>15 or y>15)
+end
+
+function hitmob(atkm,defm)
+ --todo
 end
 -->8
 --ui
@@ -227,10 +257,10 @@ function drawind()
    print(t,wx,wy,6)
    wy+=6
   end
-   
+
   -- clear clip to draw btn outside
   clip()
-  
+
   if w.dur!=nil then
    w.dur-=1
    if w.dur<=0 then
@@ -245,7 +275,7 @@ function drawind()
    if w.butt then
     oprint8("❎",wx+ww-15,wy-0.5+sin(time()),6)
    end
-  end  
+  end
  end
 end
 
@@ -260,10 +290,22 @@ function addmob(typ,mx,my)
  local m={
   x=mx,
   y=my,
-  ani={192,193,194,195}
+  ox=0,
+  oy=0,
+  sox=0,
+  soy=0,
+  flp=false,
+  move=nil,
+  ani={}
  }
+
+ for i=0,3 do
+  add(m.ani,mob_ani[typ]+i)
+ end
  add(mob,m)
+ return m
 end
+
 __gfx__
 000000000000000066066660000000000000000000000000aaaaaaa000aaa00000aaa00000000000000000000000000000aaa000a0aaa0a0a000000055555550
 000000000000000000000000000000000000000000000000aaaaaaa00a000a000a000a00066666000aaaaa0066666660a0aaa0a000000000a0aa000000000000
