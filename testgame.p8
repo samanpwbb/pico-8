@@ -263,6 +263,10 @@ function blankmap(_dflt)
  end
  return ret
 end
+
+function getrnd(arr)
+ return arr[1+flr(rnd(#arr))]
+end
 -->8
 --gameplay
 
@@ -303,7 +307,7 @@ function trig_bump(tle, destx, desty)
   --tablet
   --can we give tablets ids and
   --look up dialog based on id?
-  showmsg({"welcome to tower","climb it k?"})
+  showtalk({"welcome to tower","climb it k?"})
  elseif tle==10 or tle==12 then
  	--chest
  	sfx(61)
@@ -399,7 +403,7 @@ function los(x1,y1,x2,y2)
   e2=err+err
   if e2>-dy then
    err-=dy
-   x1=x1+sx
+   x1+=sx
   end
   if e2<dx then
    err+=dx
@@ -503,7 +507,13 @@ function drawind()
  end
 end
 
-function showmsg(txt)
+function showmsg(txt,dur)
+ local wid=(#txt+2)*4+7
+ local w=addwind(63-wid/2,50,wid,13,{" "..txt})
+ w.dur=dur
+end
+
+function showtalk(txt)
  talkwind=addwind(16,50,94,#txt*6+7,txt)
  talkwind.btn=true
 end
@@ -636,7 +646,7 @@ function ai_atk(m)
    addfloat("?",m.x*8+2,m.y*8,10)
   else
    --move to player
-   local bdst,bx,by=999,0,0
+   local bdst,cand=999,{}
    calcdist(m.tx,m.ty)
    for i=1,4 do
     local dx,dy=dirx[i],diry[i]
@@ -644,12 +654,21 @@ function ai_atk(m)
     if iswalkable(tx,ty,"checkmobs") then
      local dst=distmap[tx][ty]
      if dst<bdst then
-      bdst,bx,by=dst,dx,dy
+      cand={}
+      bdst=dst
+     end 
+     if dst==bdst then
+      add(cand,{x=dx,y=dy})
      end
     end
    end
-   mobwalk(m,bx,by)
-   return true
+   if #cand>0 then
+    --★ remove random?
+    end
+    local c=getrnd(cand)
+    mobwalk(m,c.x,c.y)
+    return true
+   end
   end
  end
  return false
