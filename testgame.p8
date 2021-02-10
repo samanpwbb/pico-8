@@ -8,16 +8,21 @@ function _init()
 
  dirx={-1,1,0,0,1,1,-1,-1}
  diry={0,0,-1,1,-1,1,1,-1}
+ 
+ thrdir,thrdx,thrdy=2,-1,0
 
  mob_ani={240,192}
  mob_atk={1,    1}
  mob_hp ={5,    2}
  mob_los={4,    4}
 
- itm_name={"wooden sword","heavy armor","hot peppers","paper airplane"}
- itm_type={"wep","arm","fud","thr"}
- startgame()
+ itm_name={"wooden sword","heavy armor","hot peppers","paper airplane","big hammer"}
+ itm_type={"wep","arm","fud","thr","wep"}
+ itm_stat1={1,0,1,0,2}
+ itm_stat2={0,2,0,0,0}
  
+ startgame()
+
 end
 
 function _update60()
@@ -60,7 +65,8 @@ function startgame()
  takeitem(2)
  takeitem(3)
  takeitem(4)
- 
+ takeitem(5)
+
  wind={}
  float={}
  fog=blankmap(1)
@@ -91,7 +97,7 @@ end
 function update_inv()
  move_mnu(curwind)
  if btnp(4) then
-  if curwind==invind then
+  if curwind==invwind then
    _upd=update_game
    invwind.dur=0
    statwind.dur=0
@@ -102,10 +108,25 @@ function update_inv()
  elseif btnp(5) then
   if curwind==invwind and invwind.cur!=3 then
    showuse()
-  elseif curwind==usewind then  
-   --use wind confirm
+  elseif curwind==usewind then
+   triguse()
   end
  end
+end
+
+function update_throw()
+ local b=getbtn()
+ if b>=0 and b<=3 then
+  thrdir=b
+ end
+ thrdx=dirx[thrdir+1]
+ thrdy=diry[thrdir+1]
+ if b==4 then
+  _upd=update_game
+ elseif b==5 then
+  throw()
+ end
+ 
 end
 
 function move_mnu(wnd)
@@ -120,8 +141,11 @@ end
 function update_pturn()
  dobtnbuff()
  p_t=min(p_t+0.2,1)
- p_mob:mov(p_mob)
 
+ if p_mob.mov then
+  p_mob:mov()
+ end
+ 
  if p_t==1 then
  	_upd=update_game
  	if checkend() then
@@ -199,6 +223,10 @@ function draw_game()
  end
  drawmob(p_mob)
 
+ if _upd==update_throw then
+  line(p_mob.x*8+4,p_mob.y*8+4,p_mob.x*8+4+thrdx*16,p_mob.y*8+4+thrdy*16,6)
+ end
+ 
  --cover everything in fog
  for x=0,15 do
   for y=0,15 do
@@ -236,6 +264,7 @@ end
 
 function drawspr(_spr,_x,_y,_c, _flip)
 	palt(0,false)
+	pal(12,_c)
 	pal(12,_c)
 	spr(_spr,_x - (_flip and 1 or 0),_y,1,1,_flip)
 	pal()
@@ -396,6 +425,8 @@ end
 function hitmob(atkm,defm)
  local dmg=atkm.atk
 
+ dmg-=defm.defmin+flr(rnd(defm.defmax-defm.defmin+1))
+ dmg=max(0,dmg)
  defm.hp-=dmg
  defm.flash=10
 
@@ -406,6 +437,14 @@ function hitmob(atkm,defm)
   add(dmob,defm)
   del(mob,defm)
  end
+end
+
+function healmob(mb,hp)
+ hp=min(mb.hpmax-mb.hp,hp)
+ mb.hp+=hp
+ mb.flash=10
+
+ addfloat("+"..hp,mb.x*8,mb.y*8,14)
 end
 
 function checkend()
@@ -504,6 +543,33 @@ function calcdist(tx,ty)
   cand=candnew
  until #cand==0
 end
+
+function updatestats()
+ local atk=1,0,0
+
+ if eqp[1] then
+  p_mob.atk+=itm_stat1[eqp[1]]
+ end
+
+ if eqp[2] then
+  p_mob.defmin+=itm_stat1[eqp[2]]
+  p_mob.defmax+=itm_stat2[eqp[2]]
+ end
+ 
+end
+
+function eat(itm,mb)
+ local effect=itm_stat1[itm]
+ 
+ if effect==1 then
+  --heal
+  healmob(mb,1)
+ end
+end
+
+function throw()
+ _upd=update_game
+end
 -->8
 --ui
 
@@ -527,13 +593,13 @@ function drawind()
   if w.cur then
    wx+=6
   end
-  
+
   for i=1,#w.txt do
    local t,c=w.txt[i],14
    if w.col and w.col[i] then
     c=w.col[i]
    end
-   
+
    print(t,wx,wy,c)
    if i==w.cur then
     spr(255,wx-5+(sin(time())/2),wy)
@@ -611,10 +677,10 @@ function showinv()
   end
   add(txt,eqt)
  end
- 
+
  add(txt,"………………")
  add(col,14)
- 
+
  for i=1,6 do
   itm=inv[i]
   if itm then
@@ -630,7 +696,7 @@ function showinv()
  invwind.cur=1
  invwind.col=col
 
- statwind=addwind(5,5,84,13,{"atk: 1  def: 1"})
+ statwind=addwind(5,5,84,13,{"atk:"..p_mob.atk.." def:"..p_mob.defmin.."-"..p_mob.defmax})
  curwind=invwind
 end
 
@@ -639,10 +705,10 @@ function showuse()
  if itm==nil then return end
  local typ,txt=itm_type[itm],{}
 
- if typ=="wep" or typ=="arm" then
-  add(txt,"equip") 
+ if invwind.cur>3 and (typ=="wep" or typ=="arm") then
+  add(txt,"equip")
  end
- 
+
  if typ=="fud" then
   add(txt,"eat")
  end
@@ -656,6 +722,58 @@ function showuse()
  usewind.cur=1
  curwind=usewind
 end
+
+function triguse()
+ local verb,i,after=usewind.txt[usewind.cur],invwind.cur,"back"
+ local itm=i<3 and eqp[i] or inv[i-3]
+
+ if verb=="trash" then
+  if i<3 then
+   eqp[i]=nil
+  else
+   inv[i-3]=nil
+  end
+ elseif verb=="equip" then
+  local slot=itm_type[itm]=="wep" and 1 or 2
+  inv[i-3]=eqp[slot]
+  eqp[slot]=itm
+ elseif verb=="eat" then
+  eat(itm,p_mob)
+  p_mob.mov=nil
+  after="turn"
+  inv[i-3]=nil
+ elseif verb=="throw" then
+  after="throw"
+ end
+
+ updatestats()
+
+ if after=="back" then
+  usewind.dur=0
+  del(wind,invwind)
+  del(wind,statwind)
+  showinv()
+  invwind.cur=i
+ elseif after=="turn" then
+  usewind.dur=0
+  invwind.dur=0
+  statwind.dur=0
+  p_t=0
+  _upd=update_pturn
+ elseif after=="game" then
+  usewind.dur=0
+  invwind.dur=0
+  statwind.dur=0
+  _upd=update_game
+ elseif after=="throw" then
+  usewind.dur=0
+  invwind.dur=0
+  statwind.dur=0
+  _upd=update_throw
+ end
+ 
+end
+
 -->8
 --mobs
 
@@ -668,6 +786,8 @@ function addmob(typ,mx,my)
   flp=false,
   ani={},
   flash=0,
+  defmin=0,
+  defmax=0,
   hp=mob_hp[typ],
   hpmax=mob_hp[typ],
   atk=mob_atk[typ],
@@ -772,7 +892,7 @@ function ai_atk(m)
      if dst<bdst then
       cand={}
       bdst=dst
-     end 
+     end
      if dst==bdst then
       add(cand,{x=dx,y=dy})
      end
@@ -910,13 +1030,13 @@ __gfx__
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00080000000080000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00888000000880000008000000880000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-08888800008888000088800008888000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-88080880088808800888880088088800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-88808880888088808808088088808880000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-88888880888888808880888088888880000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-08888800088888000888880008888800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000c00000000c0000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00ccc000000cc000000c000000cc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0ccccc0000cccc0000ccc0000cccc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+cc0c0cc00ccc0cc00ccccc00cc0ccc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+ccc0ccc0ccc0ccc0cc0c0cc0ccc0ccc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+ccccccc0ccccccc0ccc0ccc0ccccccc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0ccccc000ccccc000ccccc000ccccc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
