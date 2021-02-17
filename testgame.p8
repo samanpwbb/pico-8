@@ -239,13 +239,11 @@ function draw_game()
  end
 
  --fog
- for x=0,15 do
-  for y=0,15 do
-   if fog[x][y]==1 then
-    rectfill2(x*8,y*8,8,8,0)
-   end
+ travbrd(function(x,y)
+  if fog[x][y]==1 then
+   rectfill2(x*8,y*8,8,8,0)
   end
- end
+ end)
 
  --floating text
  for f in all(float) do
@@ -352,7 +350,6 @@ function getrnd(arr)
  return arr[1+flr(rnd(#arr))]
 end
 
---move to tools + use everywhere
 function trav(cb,xmin,xmax,ymin,ymax)
  for x=xmin,xmax do
   for y=ymin,ymax do
@@ -361,6 +358,9 @@ function trav(cb,xmin,xmax,ymin,ymax)
  end
 end
 
+function travbrd(cb)
+ return trav(cb,0,15,0,15)
+end
 -->8
 --gameplay
 
@@ -983,10 +983,13 @@ end
 --gen
 
 function mapgen()
- trav(function(x,y) mset(x,y,2) end,
-  0,15,0,15)
+ travbrd(function(x,y)
+  mset(x,y,rnd(1)>.8 and 2 or 2)
+ end)
  genrooms()
  mazeworm()
+ placeflags()
+ carvedoors()
 end
 
 ----------------
@@ -994,8 +997,8 @@ end
 ----------------
 
 function genrooms()
- local fmax,rmax=5,6
- local mw,mh=7,7
+ local fmax,rmax=5,4
+ local mw,mh=5,5
 
  repeat
   local r=rndroom(mw,mh)
@@ -1062,21 +1065,50 @@ end
 ----------------
 
 function mazeworm()
- trav(
-  function(x,y)
-   if not iswalkable(x,y) then
-    if cancarve(x,y) then
-     mset(x,y,3)
-    else
-     mset(x,y,2)
+ repeat
+	 local cand={}
+	 travbrd(
+	  function(x,y)
+	   if not iswalkable(x,y) and getsig(x,y)==0b11111111 then
+	    add(cand,{x=x,y=y})
+	   end
+	  end)
+
+	 if #cand>0 then
+	  local c=getrnd(cand)
+	  digworm(c.x,c.y)
+	 end
+ until #cand<=1
+end
+
+function digworm(x,y)
+ local dr,step=1+flr(rnd(4)),0
+
+ repeat
+  mset(x,y,1)
+  if not cancarve(x+dirx[dr],y+diry[dr]) or (rnd()<0.5 and step>=2) then
+   local cand={}
+   for i=1,4 do
+    if cancarve(x+dirx[i],y+diry[i]) then
+     add(cand,i)
     end
    end
+   if #cand==0 then
+    dr=8
+   else
+    step=0
+    dr=getrnd(cand)
+   end
   end
-  ,0,15,0,15)
+  x+=dirx[dr]
+  y+=diry[dr]
+  step+=1
+ until dr==8
+
 end
 
 function cancarve(x,y)
- if inbounds(x,y) then
+ if inbounds(x,y) and not iswalkable(x,y) then
   local sig=getsig(x,y)
   for i=1,#crv_sig do
    if bcomp(sig,crv_sig[i],crv_msk[i]) then
@@ -1107,15 +1139,79 @@ function getsig(x,y)
  return sig
 end
 
+----------------
+-- doorways
+----------------
 
+function placeflags()
+ local curf=1
+ flgs=blankmap(0)
+ travbrd(function(x,y)
+  if iswalkable(x,y) and flgs[x][y]==0 then
+   growflag(x,y,curf)
+   curf+=1
+  end
+ end)
+end
+
+function growflag(x,y,flg)
+ local cand,candnew={{x=x,y=y}}
+
+ repeat
+  candnew={}
+  for c in all(cand) do
+   flgs[c.x][c.y]=flg
+   for d=1,4 do
+    local dx,dy=c.x+dirx[d],c.y+diry[d]
+    if iswalkable(dx,dy) and flgs[dx][dy]!=flg then
+     add(candnew,{x=dx,y=dy})
+    end
+   end
+  end
+  cand=candnew
+ until #cand==0
+end
+
+function carvedoors()
+ local x1,y1,x2,y2,found,f1,f2=1,1,1,1
+
+ repeat
+  local drs={}
+  travbrd(function(x,y)
+   if not iswalkable(x,y) then
+    local sig=getsig(x,y)
+    found=false
+    --is 1 space gap btwn rooms
+    if bcomp(sig,0b11000000,0b00001111) then
+     x1,y1,x2,y2,found=x,y-1,x,y+1,true
+    elseif bcomp(sig,0b00110000,0b00000000) then
+     x1,y1,x2,y2,found=x+1,y,x-1,y,true
+    end
+    f1=flgs[x1][y1]
+    f2=flgs[x2][y2]
+
+    if found and f1!=f2 then
+     add(drs,{x=x,y=y,f1=f1,f2=f2})
+    end
+   end
+  end)
+
+	 if #drs>0 then
+	  local d=getrnd(drs)
+	  mset(d.x,d.y,1)
+	  growflag(d.x,d.y,d.f1)
+	 end
+ until #drs==0
+
+end
 __gfx__
 00000000000000000000000000f2f00000000000000000000aaaaa0000aaa00000aaa00000000000000000000000000000a9a0000aaaaa000aaaaa0001111110
-00000000001000000b303b000f2e2f0000000000000000009aaaaaa00a000a000a000a000666660000aaa0006666666099aaa9a0900000a0900000a010000000
-007007000000000000b0b00000f2f0000000000000000000900000a00a000a000a000a0006000600099a9a0060000060900000a0909aa0a0900000a010000000
-0007700000001000b30b03b0b30b03b00000000000000000009a900009aaa00099aaa0a00666660009aaaa0060000060900900a09099a0a0900000a010000010
-00077000000000000b030b000b0b0b000000000000000000900000a00a99aa009a99aaa00000000000000000666666609aa0aaa0909aa0a0900009a010000110
-007007000100000000b3b00000b3b000000000000000000090a9a0a009aaaa0009aaaa000666660009aaaa0000000000000000009099a0a0900099a010001110
-000000000000010000030000000300000000000000000000900000a0009aa000009aa0000666660009aaaa00666666609aaaaaa0909aa0a0900999a001111110
+00000000001000000b303b000f2e2f0000b0b000000000009aaaaaa00a000a000a000a000666660000aaa0006666666099aaa9a0900000a0900000a010000000
+007007000000000000b0b00000f2f000000b000000000000900000a00a000a000a000a0006000600099a9a0060000060900000a0909aa0a0900000a010000000
+0007700000001000b30b03b0b30b03b0b00300b000000000009a900009aaa00099aaa0a00666660009aaaa0060000060900900a09099a0a0900000a010000010
+00077000000000000b030b000b0b0b000b030b0000000000900000a00a99aa009a99aaa00000000000000000666666609aa0aaa0909aa0a0900009a010000110
+007007000100000000b3b00000b3b00000b3b0000000000090a9a0a009aaaa0009aaaa000666660009aaaa0000000000000000009099a0a0900099a010001110
+000000000000010000030000000300000003000000000000900000a0009aa000009aa0000666660009aaaa00666666609aaaaaa0909aa0a0900999a001111110
 00000000000000000000000000000000000000000000000009aaaa00000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
