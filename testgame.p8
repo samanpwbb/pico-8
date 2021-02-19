@@ -137,7 +137,6 @@ function update_pturn()
  if p_t==1 then
  	_upd=update_game
   if trig_step() then return end
-  
  	if checkend() and not skipai then
    doai()
  	end
@@ -237,7 +236,7 @@ function draw_game()
  end
 
  --fog
- travbrd(function(x,y)
+ visbrd(function(x,y)
   if fog[x][y]==1 then
    rectfill2(x*8,y*8,8,8,0)
   end
@@ -348,7 +347,7 @@ function getrnd(arr)
  return arr[1+flr(rnd(#arr))]
 end
 
-function trav(cb,xmin,xmax,ymin,ymax)
+function visit(cb,xmin,xmax,ymin,ymax)
  for x=xmin,xmax do
   for y=ymin,ymax do
    cb(x,y)
@@ -356,8 +355,8 @@ function trav(cb,xmin,xmax,ymin,ymax)
  end
 end
 
-function travbrd(cb)
- return trav(cb,0,15,0,15)
+function visbrd(cb)
+ return visit(cb,0,15,0,15)
 end
 -->8
 --gameplay
@@ -951,7 +950,7 @@ function ai_atk(m)
       cand={}
       bdst=dst
      end
-     
+
      if dst==bdst then
       add(cand,i)
      end
@@ -1001,7 +1000,7 @@ end
 
 function mapgen()
  --fill board with walls
- travbrd(function(x,y)
+ visbrd(function(x,y)
   mset(x,y,rnd(1)>.8 and 2 or 2)
  end)
 
@@ -1009,7 +1008,7 @@ function mapgen()
  rooms={}
  roomap=blankmap(0)
  doors={}
- 
+
  --generate!
  genrooms()
  mazeworm()
@@ -1019,7 +1018,7 @@ function mapgen()
  startend()
  fillends()
  placedoors()
- 
+
 end
 
 ----------------
@@ -1027,16 +1026,14 @@ end
 ----------------
 
 function genrooms()
- local fmax,rmax=5,5
- local mw,mh=6,6
-
+ local fmax,rmax,mw,mh=5,5,6,6
+ local xbase,ybase=flr(rnd(2)),flr(rnd(2))
  repeat
   local r=rndroom(mw,mh)
-  if placeroom(r) then
+  if placeroom(r,xbase,ybase) then
    rmax-=1
   else
    fmax-=1
-
    if r.w>r.h then
     mw=max(mw-1,3)
    else
@@ -1044,27 +1041,36 @@ function genrooms()
    end
   end
  until fmax<=0 or rmax<=0
-
 end
 
 function rndroom(mw,mh)
- --clamp max
- local _w=3+flr(rnd(mw-2))
- mh=mid(35/_w,3,mh)
- local _h=3+flr(rnd(mh-2))
+ local w=3+flr(rnd(mw-2))
+ --all rooms have odd x,y
+ if (w%2==0) then
+  w-=1
+ end
+
+ mh=mid(35/w,3,mh)
+ local h=3+flr(rnd(mh-2))
+
+ if (h%2==0) then
+  h-=1
+ end
+
  return {
   x=0,
   y=0,
-  w=_w,
-  h=_h
+  w=w,
+  h=h
  }
 end
 
-function placeroom(r)
+function placeroom(r,xbase,ybase)
  local cand,c={}
+ local odd=flr(rnd(2))
+ visit(function(x,y)
 
- trav(function(x,y)
-   if doesroomfit(r,x,y) then
+   if x%2!=xbase and y%2!=ybase and doesroomfit(r,x,y) then
     add(cand,{x=x,y=y})
    end
   end,
@@ -1076,7 +1082,7 @@ function placeroom(r)
  r.y=c.y
 
  add(rooms,r)
- trav(function(x,y)
+ visit(function(x,y)
    mset(x+r.x,y+r.y,1)
    roomap[x+r.x][y+r.y]=#rooms
   end,
@@ -1103,7 +1109,7 @@ end
 function mazeworm()
  repeat
 	 local cand={}
-	 travbrd(
+	 visbrd(
 	  function(x,y)
 	   if not iswalkable(x,y) and getsig(x,y)==0b11111111 then
 	    add(cand,{x=x,y=y})
@@ -1115,6 +1121,20 @@ function mazeworm()
 	  digworm(c.x,c.y)
 	 end
  until #cand<=1
+
+ --carve out excess chunks
+ repeat
+  local cand={}
+  visbrd(function(x,y)
+   if cancarve(x,y,false) and not nexttoroom(x,y) then
+    add(cand,{x=x,y=y})
+   end
+  end)
+  if #cand>0 then
+	  local c=getrnd(cand)
+	  mset(c.x,c.y,1)
+	 end
+ until #cand==0
 end
 
 function digworm(x,y)
@@ -1157,7 +1177,7 @@ end
 
 function bcomp(sig,match,mask)
  local mask=mask or 0
- return bor(sig,mask)==bor(match,mask)
+ return sig|mask==match|mask
 end
 
 function getsig(x,y)
@@ -1182,7 +1202,7 @@ end
 function placeflags()
  local curf=1
  flgs=blankmap(0)
- travbrd(function(x,y)
+ visbrd(function(x,y)
   if iswalkable(x,y) and flgs[x][y]==0 then
    growflag(x,y,curf)
    curf+=1
@@ -1215,7 +1235,7 @@ function carvedoors()
 
  repeat
   drs={}
-  travbrd(function(x,y)
+  visbrd(function(x,y)
    if not iswalkable(x,y) then
     local sig=getsig(x,y)
     found=false
@@ -1236,7 +1256,7 @@ function carvedoors()
 
 	 if #drs>0 then
 	  local d=getrnd(drs)
-	  if isdoor(d.x,d.y) then 
+	  if isdoor(d.x,d.y) then
  	  add(doors,d)
    end
    mset(d.x,d.y,1)
@@ -1251,7 +1271,7 @@ function carvescuts()
 
  repeat
   drs={}
-  travbrd(function(x,y)
+  visbrd(function(x,y)
    if not iswalkable(x,y) then
     local sig=getsig(x,y)
     found=false
@@ -1273,7 +1293,7 @@ function carvescuts()
 
 	 if #drs>0 then
 	  local d=getrnd(drs)
-	  if isdoor(d.x,d.y) then 
+	  if isdoor(d.x,d.y) then
  	  add(doors,d)
    end
    mset(d.x,d.y,1)
@@ -1286,7 +1306,7 @@ function fillends()
  local cand
  repeat
  	cand={}
-  travbrd(function(x,y)
+  visbrd(function(x,y)
    local tle=mget(x,y)
    if cancarve(x,y,true) and tle!=14 and tle!=15 then
     add(cand,{x=x,y=y})
@@ -1300,17 +1320,26 @@ function fillends()
 end
 
 function isdoor(x,y)
- for i=1,4 do
-  if inbounds(x+dirx[i],y+diry[i]) and roomap[x+dirx[i]][y+diry[i]]!=0 then
-	  return true
-  end  
+ local sig=getsig(x,y)
+ if bcomp(sig,0b11000000,0b00001111) or bcomp(sig,0b00110000,0b00001111) then
+  return nexttoroom(x,y)
+ end
+ return false
+end
+
+function nexttoroom(x,y)
+	for i=1,4 do
+	 if inbounds(x+dirx[i],y+diry[i]) and
+	    roomap[x+dirx[i]][y+diry[i]]!=0 then
+ 	 return true
+	 end
  end
  return false
 end
 
 function placedoors()
  for d in all(doors) do
-  if iswalkable(d.x,d.y) then
+  if mget(d.x,d.y)==1 and isdoor(d.x,d.y) then
    mset(d.x,d.y,13)
   end
  end
@@ -1328,7 +1357,7 @@ function startend()
  until iswalkable(px,py)
 
  calcdist(px,py)
- travbrd(function(x,y)
+ visbrd(function(x,y)
   local tmp=distmap[x][y]
   if iswalkable(x,y) and tmp>high then
    px,py,high=x,y,tmp
@@ -1337,22 +1366,22 @@ function startend()
 
  calcdist(px,py)
  high=0
- travbrd(function(x,y)
+ visbrd(function(x,y)
   local tmp=distmap[x][y]
-  if tmp>high and cancarve(x,y,false) then
+  if tmp>high and (cancarve(x,y,false) or cancarve(x,y,true)) then
    ex,ey,high=x,y,tmp
   end
  end)
  mset(ex,ey,14)
 
- travbrd(function(x,y)
+ visbrd(function(x,y)
   local tmp=distmap[x][y]
-  if tmp>=0 and tmp<low and cancarve(x,y,false) then
+  if tmp>=0 and tmp<low and (cancarve(x,y,false) or cancarve(x,y,true)) then
    px,py,low=x,y,tmp
   end
  end)
  mset(px,py,15)
- 
+
  p_mob.x=px
  p_mob.y=py
 end
@@ -1369,7 +1398,7 @@ __gfx__
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000008000000090000000b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
