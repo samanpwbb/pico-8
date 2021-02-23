@@ -32,7 +32,7 @@ __lua__
 	mob_los=ints("4,4,4,4,4,4,4,4,4")
 	mob_minf=ints("0,1,2,3,4,5,6,7,8")
 	mob_maxf=ints("0,3,4,5,6,7,8,8,8")
-	mob_spec=split(",,,,,stun,,slow,")
+	mob_spec=split(",,,,,stun,curse,slow,")
 
  startgame()
 end
@@ -70,7 +70,8 @@ function startgame()
  inv,eqp={},{}
  makeipool()
  foodnames()
- takeitem(15)
+ takeitem(17)
+ takeitem(18)
 
  wind={}
  float={}
@@ -525,6 +526,7 @@ function trig_step()
  local tle=mget(p_mob.x,p_mob.y)
 
  if tle==14 then
+  p_mob.bless=0
   fadeout()
   genfloor(floor+1)
   floormsg()
@@ -566,6 +568,13 @@ end
 function hitmob(atkm,defm)
  local dmg=atkm.atk
 
+ if defm.bless<0 then
+  dmg*=2
+ elseif defm.bless>0 then
+  dmg=flr(dmg/2)
+ end
+ defm.bless=0
+
  dmg-=defm.defmin+flr(rnd(defm.defmax-defm.defmin+1))
  dmg=max(0,dmg)
  defm.hp-=dmg
@@ -592,6 +601,20 @@ function stunmob(mb)
  mb.stun=true
  mb.flash=10
  addfloat("stun",mb.x*8,mb.y*8,14)
+end
+
+function blessmob(mb,val)
+ mb.bless=mid(-1,1,mb.bless+val)
+ mb.flash=10
+ local txt=val>0 and "bless" or "curse"
+ addfloat(txt,mb.x*8,mb.y*8,14)
+
+ --hit ghost
+ if mb.spec=="curse" and val>0 then
+  add(dmob,mb)
+  del(mob,mb)
+  mb.dur=10
+ end
 end
 
 function checkend()
@@ -707,7 +730,6 @@ end
 
 function eat(itm,mb)
  local effect=itm_stat1[itm]
- printh(itm)
  showmsg(itm_name[itm]..itm_desc[itm],60)
  if effect==1 then
   --heal
@@ -723,8 +745,10 @@ function eat(itm,mb)
   stunmob(mb)
  elseif effect==5 then
   --curse
+  blessmob(mb,-1)
  elseif effect==6 then
   --bless
+  blessmob(mb,1)
  end
 end
 
@@ -884,7 +908,14 @@ function showinv()
  invwind.cur=1
  invwind.col=col
 
- statwind=addwind(5,5,84,13,{"atk:"..p_mob.atk.." def:"..p_mob.defmin.."-"..p_mob.defmax})
+ local txt="ok    "
+ if p_mob.bless<0 then
+  txt="curse "
+ elseif p_mob.bless>0 then
+  txt="bless "
+ end
+
+ statwind=addwind(5,5,84,13,{txt.."atk:"..p_mob.atk.." def:"..p_mob.defmin.."-"..p_mob.defmax})
  curwind=invwind
 end
 
@@ -964,6 +995,10 @@ function addmob(typ,mx,my)
   oy=0,
   flp=false,
   stun=false,
+  bless=0,
+  charge=1,
+  spec=mob_spec[typ],
+  lastmoved=false,
   ani={},
   flash=0,
   defmin=0,
@@ -1023,7 +1058,8 @@ function doai()
    if m.stun then
     m.stun=false
    else
-    moving=m.task(m) or moving
+    m.lastmoved=m.task(m)
+    moving=m.lastmoved or moving
    end
   end
  end
@@ -1048,9 +1084,22 @@ function ai_atk(m)
  if dist(m.x,m.y,p_mob.x,p_mob.y)==1 then
   --attack
   dx,dy=p_mob.x-m.x,p_mob.y-m.y
-  mobbump(m,dx,dy)
-  hitmob(m,p_mob)
+
+  --some monsters stun
+  if m.spec=="stun" and m.charge>0 then
+   stunmob(p_mob)
+   m.charge-=1
+  elseif m.spec=="curse" and m.charge>0 then
+   hitmob(p_mob)
+   blessmob(p_mob,-1)
+   m.charge-=1
+  else
+   --others dmg
+   hitmob(m,p_mob)
+  end
   sfx(57)
+
+  mobbump(m,dx,dy)
   return true
  else
   --move
@@ -1061,10 +1110,12 @@ function ai_atk(m)
 
   if m.x==m.tx and m.y==m.ty then
    --drop aggro
-   --TODO: seems buggy
    m.task=ai_wait
    addfloat("?",m.x*8+2,m.y*8,10)
   else
+   if m.spec=="slow" and m.lastmoved then
+    return false
+   end
    --move to player
    local bdst,cand=999,{}
    calcdist(m.tx,m.ty)
